@@ -1,3 +1,4 @@
+import { materializeConfirmedGoal } from './confirmed-goal';
 import { saveGoalFunding } from "./goal-funding";
 import { z } from "zod";
 import { db } from "@/lib/db";
@@ -41,6 +42,8 @@ export async function confirmAgentProposal(workspaceId:string,id:string,raw:unkn
    else result=await tx.goalDecision.create({data:{workspaceId,title:facts.name,goalId:data.goalId,factsJson:encode(facts)}});
    await tx.workspace.update({where:{id:workspaceId},data:{portfolioRevision:{increment:1}}});
    const d=result as {id:string};await tx.agentSession.update({where:{id:prior.run.sessionId},data:{decisionId:d.id,version:{increment:1}}});
+   const goalId=await materializeConfirmedGoal(tx,workspaceId,d.id);
+   if(goalId)await tx.agentSession.update({where:{id:prior.run.sessionId},data:{goalId}});
   }else if(p.operation==="ADOPT_PLAN"){
    const e=await tx.goalEvaluationRecord.findFirst({where:{workspaceId,id:data.evaluationId,status:"FEASIBLE"}});
    if(!e||e.sourceSignature!==fresh.signature)throw new ApiError("评估已过期",409);

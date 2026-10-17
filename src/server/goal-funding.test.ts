@@ -15,6 +15,41 @@ async function seed(){
  return {w,a,session};
 }
 describe('goal funding lifecycle',()=>{
+ it('retains the confirmed local purchase month at the first day boundary',async()=>{
+  const w=await db.workspace.create({data:{}});const month=addMonths(currentCarMonth(),12);
+  const goal=await db.goal.create({data:{workspaceId:w.id,name:'买车',type:'CAR_PURCHASE',targetAmountMinor:20000000n,targetDate:new Date(`${month}-01T00:00:00+08:00`)}});
+  const session=await createAgentSession(w.id,{agentKey:'GOAL',goalId:goal.id});
+  expect((await getGoalFunding(w.id,session.id)).facts.targetMonth).toBe(month);
+ });
+
+ it('creates a visible goal after generic target confirmation without adopting or reserving',async()=>{
+  const w=await db.workspace.create({data:{}});const session=await createAgentSession(w.id,{agentKey:'GOAL'});
+  const run=await startAgentMessage(w.id,session.id,{content:'一年后购买20万元汽车',clientMessageId:crypto.randomUUID()});let calls=0;
+  const facts={name:'一年后购买20万元汽车',targetAmountMinor:'20000000',targetDate:`${addMonths(currentCarMonth(),12)}-17`,preparedAmountMinor:null,priority:null,reserveMinor:null,monthlyCostMinor:null,assetIds:[],confirmed:false};
+  const answer={kind:'ANSWER',message:'请确认目标',toolName:null,argumentsJson:null,specialist:null,evidenceIds:[],missing:[]};
+  await executeAgentRun(w.id,run.id,()=>{},{model:async()=>calls++===0?{...answer,kind:'CALL_TOOL',toolName:'proposeGoalDraft',argumentsJson:JSON.stringify({decisionId:null,facts})}:answer});
+  const proposal=await db.agentProposal.findFirstOrThrow({where:{runId:run.id}});
+  expect(await db.goal.count({where:{workspaceId:w.id}})).toBe(0);
+  await confirmAgentProposal(w.id,proposal.id,{version:proposal.version,confirm:true});
+  await confirmAgentProposal(w.id,proposal.id,{version:proposal.version,confirm:true});
+  const goal=await db.goal.findFirstOrThrow({where:{workspaceId:w.id}});
+  expect(goal.type).toBe('CAR_PURCHASE');expect(goal.targetAmountMinor).toBe(20000000n);
+  const state=await getGoalFunding(w.id,session.id);expect(state.goalId).toBe(goal.id);expect(state.facts.purpose).toBe(facts.name);expect(state.facts.budgetMinor).toBe('20000000');expect(state.activePlan).toBeNull();
+  await db.$transaction(tx=>saveGoalFunding(tx,w.id,session.id,{expectedVersion:null,sourceSignature:state.sourceSignature,confirmTarget:true,facts:state.facts}));
+  expect(await db.goal.count({where:{workspaceId:w.id}})).toBe(1);expect(await db.goalDecision.count({where:{workspaceId:w.id}})).toBe(1);
+  expect((await db.goal.findUniqueOrThrow({where:{id:goal.id}})).targetDate).toEqual(goal.targetDate);
+  expect(await db.carFundingReservation.count({where:{workspaceId:w.id}})).toBe(0);expect(await db.goalFundingReservation.count({where:{workspaceId:w.id}})).toBe(0);
+ });
+ it('recovers an already confirmed legacy target without replaying chat or duplicating records',async()=>{
+  const w=await db.workspace.create({data:{}});
+  const d=await db.goalDecision.create({data:{workspaceId:w.id,title:'一年后购买20万元汽车',factsJson:JSON.stringify({name:'一年后购买20万元汽车',targetAmountMinor:'20000000',targetDate:`${addMonths(currentCarMonth(),12)}-17`,preparedAmountMinor:null,priority:null,reserveMinor:'6000000',monthlyCostMinor:'100000',assetIds:[],confirmed:true})}});
+  const session=await db.agentSession.create({data:{workspaceId:w.id,agentKey:'GOAL',kind:'FIVE_AGENT',title:'历史买车目标',sourceRevision:0,decisionId:d.id}});
+  const other=await db.workspace.create({data:{}});await expect(getGoalFunding(other.id,session.id)).rejects.toThrow('不存在');
+  const recovered=await getGoalFunding(w.id,session.id);expect(recovered.goalId).toBeTruthy();expect(recovered.facts.reserveFloorMinor).toBe('6000000');expect(recovered.facts.runningMonthlyMinor).toBe('100000');
+  const again=await getGoalFunding(w.id,session.id);expect(again.goalId).toBe(recovered.goalId);expect(await db.goal.count({where:{workspaceId:w.id}})).toBe(1);
+  expect(await db.carPlanVersion.count({where:{decision:{workspaceId:w.id}}})).toBe(0);
+ });
+
  it('creates a goal before adoption, persists one plan and actions without actual money movement',async()=>{
   const {w,a,session}=await seed();const before=await getGoalFunding(w.id,session.id);expect(before.goalId).toBeTruthy();expect(before.activePlan).toBeNull();expect(await db.goal.count({where:{workspaceId:w.id}})).toBe(1);
   const e=await coordinateGoalFunding(w.id,session.id);expect(e.scenarios[0].adoptable).toBe(true);expect(e.report?.scenarios[0].accounts).toHaveLength(4);
