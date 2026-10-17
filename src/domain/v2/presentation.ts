@@ -36,11 +36,11 @@ export function trials(run: Run): Trial[] {
 export function toPublic(run: Run): PublicRun {
   const commonMonth = Math.min(...ids.map(id => run.state.paths[id].lastMonth));
   const common = commonMonth ? run.history[commonMonth - 1].paths : { a: { state: run.initial.paths.a }, b: { state: run.initial.paths.b } };
-  const summaryFacts: Fact[] = ids.map(id => ({ id: `ending:${id}`, text: `${id.toUpperCase()} ${run.setup.plans[id].label}，截至第${run.state.paths[id].lastMonth}月：剩余资金${money(funds(run.state.paths[id]))}元，负债${money(run.state.paths[id].loan + run.state.paths[id].debt)}元，购置累计支付${money(run.state.paths[id].paid)}元。${run.state.paths[id].failure ? `第${run.state.paths[id].failure!.month}月资金不足。` : ''}` }));
+  const summaryFacts: Fact[] = ids.map(id => ({ id: `ending:${id}`, text: `${id.toUpperCase()} ${run.setup.plans[id].label}，截至第${run.state.paths[id].lastMonth}月：剩余资金${money(funds(run.state.paths[id]))}元，负债${money(run.state.paths[id].loan + run.state.paths[id].debt)}元，${run.setup.input.custom ? '行动累计支出' : '购置累计支付'}${money(run.state.paths[id].paid)}元。${run.state.paths[id].failure ? `第${run.state.paths[id].failure!.month}月资金不足。` : ''}` }));
   summaryFacts.push({ id: 'comparison:common', text: `共同成功月份为第${commonMonth}月，A减B剩余资金差${money(funds(common.a.state) - funds(common.b.state))}元；剩余资金未扣负债，不是净资产或收益。` });
-  summaryFacts.push({ id: 'comparison:payments', text: `开局付款方式：A开局支付${money(run.initial.paths.a.paid)}元，B开局支付${money(run.initial.paths.b.paid)}元；后续本金偿还和利息会继续改变剩余资金。` });
+  summaryFacts.push({ id: 'comparison:payments', text: `${run.setup.input.custom ? '两种行动的初始投入' : '开局付款方式'}：A开局支付${money(run.initial.paths.a.paid)}元，B开局支付${money(run.initial.paths.b.paid)}元；${run.setup.input.custom ? '后续阶段收入与额外支出继续改变剩余资金。' : '后续本金偿还和利息会继续改变剩余资金。'}` });
   const choices = run.history.flatMap(m => m.choices);
-  summaryFacts.push({ id: 'comparison:choices', text: choices.length ? `后续选择记录：${choices.map(c => `第${c.month}月${c.path.toUpperCase()}选择${choiceLabels[c.choice]}`).join('；')}。后续选择不同时，期末差异不能全部归因于付款方式。` : '本局尚无后续职业选择，变化来自购置、日常收支及已揭晓事件。' });
+  summaryFacts.push({ id: 'comparison:choices', text: choices.length ? `后续选择记录：${choices.map(c => `第${c.month}月${c.path.toUpperCase()}选择${choiceLabels[c.choice]}`).join('；')}。后续选择不同时，期末差异不能全部归因于付款方式。` : run.setup.input.custom ? '本局按确认的行动阶段结算，差异来自初始投入、阶段收入及支出；医疗和市场事件使用相同外部经历。' : '本局尚无后续职业选择，变化来自购置、日常收支及已揭晓事件。' });
   const facts = stageFacts(run, run.stageStart);
   const trialResults = trials(run);
   if (run.pending) {

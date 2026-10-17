@@ -66,7 +66,7 @@ function hub(tab: HubTab, options: { workspaceId?: string; activeGoal?: boolean;
 describe("planning hub", () => {
   it("keeps the future-planning sections reachable from one page", () => {
     const html = render(hub("plans"));
-    for (const label of ["方案比较", "世界线对比"]) expect(html).toContain(label);
+    for (const label of ["方案比较", "未来可能性推演"]) expect(html).toContain(label);
     expect(html).not.toContain("持续财富任务");
     expect(html.match(/role="tab"/g)).toHaveLength(2);
     expect(html).not.toContain("行动计划");
@@ -82,9 +82,9 @@ describe("planning hub", () => {
     expect(planHtml).toContain("查看其他方案（2）");
     expect(planHtml).not.toContain("平衡方案");
     const scenarioHtml = render(hub("scenarios", {workspaceId:"test-workspace"}));
-    expect(scenarioHtml).toContain("世界线对比");
-    expect(scenarioHtml).toContain("正在读取当前底账");
-    expect(scenarioHtml).not.toContain("未来可能性推演");
+    expect(scenarioHtml).toContain("未来可能性推演");
+    expect(scenarioHtml).toContain("正在载入角色与资料");
+    expect(scenarioHtml).not.toContain("世界线对比");
   });
 
   it("blocks planning until a goal is selected and a current assessment exists", () => {

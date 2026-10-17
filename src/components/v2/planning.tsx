@@ -6,10 +6,11 @@ import { ids, type Character, type Input, type Plan, type Target } from '@/domai
 import type { LoanOffer, LoanResearch } from '@/domain/types';
 import { LoanResearchPanel, OfferSource } from '../loan-research';
 export interface PlanPreview { input: Input; plans: Record<'a' | 'b', Plan>; errors: string[]; months: number }
-export function TargetPicker({ onSelect }: { onSelect: (target: Target) => void }) {
+export function TargetPicker({ onSelect }: { onSelect: (target: Target | 'custom') => void }) {
   return <section className="v2-intro"><div><p className="chapter">一个决定，几年以后</p><h1>你想要的生活，<br />从哪一步开始？</h1><p className="lead">带着一个愿望，走进两段平行人生。遇到意外时做选择，再看看几年以后，你为生活留下了什么。</p></div><div className="v2-targets">
     <button onClick={() => onSelect('car')}><span className="v2-icon">车</span><h2>买一辆自己的车</h2><p>经历 5 年 · 默认车贷 3 年</p><small>还完贷款以后，故事继续。</small></button>
     <button onClick={() => onSelect('home')}><span className="v2-icon">家</span><h2>拥有一个自己的家</h2><p>经历 30 年 · 默认房贷 30 年</p><small>不同首付，改变以后选择的余地。</small></button>
+    <button onClick={() => onSelect('custom')}><span className="v2-icon">愿</span><h2>自定义人生目标</h2><p>教育、创业、裸辞，以及你的其他计划</p><small>说出想法，让 AI 整理两种行动方案，再由你确认。</small></button>
   </div></section>;
 }
 export function Profiles({ profiles, onSelect }: { profiles: Character[]; onSelect: (profile: Character) => void }) {

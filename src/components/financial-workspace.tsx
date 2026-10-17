@@ -543,9 +543,9 @@ export function FinancialWorkspace() {
               <ActionsView result={executionResults.actions} loading={saving} onStatus={updateActionStatus} />
               <GoalDecisionSummary workspaceId={workspaceId} revision={portfolio.portfolioRevision} onOpenPlanning={() => setView("planning")} />
             </div></div>}
-            <section className="goal-simulation-entry" aria-label="世界线对比">
-              <div><h2>也可以看看这件事有多少种走法</h2><p>同一个决定跑很多遍，按你的底账与真实统计假设，比较两种付款方式在几百条世界线里的位置。</p><small>{planningGoal ? `当前规划目标：${planningGoal.name}` : "使用当前底账，先确认简化输入再开始。"}</small></div>
-              <button type="button" className="button-secondary" onClick={openSimulation}><Activity size={18} aria-hidden="true" />世界线对比</button>
+            <section className="goal-simulation-entry" aria-label="未来可能性推演">
+              <div><h2>也可以看看这件事有多少种走法</h2><p>先体验事件与选择，看看两种方案走向什么结局；结束后再用 200 个模拟样本比较不同经历下的结果。</p><small>{planningGoal ? `当前规划目标：${planningGoal.name}` : "使用当前底账，先确认简化输入再开始。"}</small></div>
+              <button type="button" className="button-secondary" onClick={openSimulation}><Activity size={18} aria-hidden="true" />未来可能性推演</button>
             </section>
           </>}
           {view === "data-management" && <DataManagementView workspaceId={workspaceId} onChange={() => loadPortfolio(workspaceId)} />}

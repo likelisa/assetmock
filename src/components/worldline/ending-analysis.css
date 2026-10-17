@@ -1,0 +1,12 @@
+.ending-analysis { margin-block: 24px; padding: 24px; background: #fff; border: 1px solid #dbe5f3; border-radius: 16px; color: #183653; }
+.ending-analysis p { margin-block: 12px; line-height: 1.7; }
+.ending-analysis summary { cursor: pointer; color: #1355ED; padding-block: 14px; }
+.ending-pair { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 18px; }
+.ending-pair article { min-width: 0; padding: 16px; background: #f5f8fc; border-radius: 10px; }
+.ending-bin { font-size: 12px; padding-block: 9px; border-bottom: 1px solid #dbe5f3; }
+.ending-track { background: #e2e8f0; height: 10px; margin-block: 5px; }
+.ending-track > div { height: 100%; }
+.ending-analysis svg { width: 100%; height: auto; }
+.ending-analysis svg text { font-size: 11px; fill: #183653; }
+.ending-signature { overflow-wrap: anywhere; }
+@media(max-width: 720px) { .ending-pair { grid-template-columns: 1fr; } .ending-analysis { padding: 16px; } }
