@@ -1,3 +1,4 @@
+import { materializeConfirmedGoal } from './confirmed-goal';
 import type { Prisma } from '@prisma/client';
 import { z } from 'zod';
 import { db } from '@/lib/db';
@@ -9,6 +10,8 @@ import { agentFacts } from './agent-context';
 import { professionalFacts } from './specialist-bridge';
 import { decisionDependencies, reconcileCarDependencies } from './car-decision-state';
 import { adoptCarDecision, evaluateCarDecision } from './car-planning';
+
+const goalMonth=(date:Date)=>date.toLocaleDateString('sv-SE',{timeZone:'Asia/Shanghai'}).slice(0,7);
 
 export const fundingSaveSchema = z.object({ expectedVersion: z.number().int().nonnegative().nullable(), sourceSignature: z.string(), facts: carFactsSchema, confirmTarget: z.boolean().default(false) }).strict();
 export const fundingPatchSchema = z.object({ bonuses: carFactsSchema.shape.bonuses.optional(), monthlyIncomeMinor: carFactsSchema.shape.monthlyIncomeMinor.optional(), livingExpensesMinor: carFactsSchema.shape.livingExpensesMinor.optional(), monthlyPremiumMinor: carFactsSchema.shape.monthlyPremiumMinor.optional(), purpose: z.string().max(400).optional(), budgetMinor: carFactsSchema.shape.budgetMinor.optional(), targetMonth: carFactsSchema.shape.targetMonth.optional(), landingFeesMinor: carFactsSchema.shape.landingFeesMinor.optional(), runningMonthlyMinor: carFactsSchema.shape.runningMonthlyMinor.optional(), replacedTransportMinor: carFactsSchema.shape.replacedTransportMinor.optional(), reserveFloorMinor: carFactsSchema.shape.reserveFloorMinor.optional(), maxMonthlyPaymentMinor: carFactsSchema.shape.maxMonthlyPaymentMinor.optional(), excludedAssetIds: z.array(z.string()).max(100).optional(), loanOffers: carFactsSchema.shape.loanOffers.optional() }).strict();
@@ -34,7 +37,7 @@ async function initialFacts(tx: Prisma.TransactionClient, workspaceId: string, g
   const debt = w.liabilities.reduce((v,l) => v + l.monthlyPaymentMinor, 0n);
   const b = pro.budget;
   const living = b ? BigInt(b.livingMinor) - (b.debtIncluded ? debt : 0n) + BigInt(b.extraFixedMinor) : w.profile ? w.profile.rentExpenseMinor + w.profile.transportExpenseMinor + w.profile.essentialExpenseMinor : null;
-  return carFactsSchema.parse({ unifiedPlanning: true, purpose: goal?.name ?? '', budgetMinor: goal?.targetAmountMinor.toString() ?? null, targetMonth: goal?.targetDate.toISOString().slice(0,7) ?? null,
+  return carFactsSchema.parse({ unifiedPlanning: true, purpose: goal?.name ?? '', budgetMinor: goal?.targetAmountMinor.toString() ?? null, targetMonth: goal ? goalMonth(goal.targetDate) : null,
     monthlyIncomeMinor: b?.incomeMinor ?? (w.profile ? (w.profile.stableMonthlyIncomeMinor+w.profile.otherMonthlyIncomeMinor).toString() : null), livingExpensesMinor: living === null ? null : (living > 0n ? living : 0n).toString(),
     monthlyPremiumMinor: pro.expenseReady ? ((b?.premiumsIncluded ? 0n : BigInt(pro.premiumMinor)) + (b?.proposedPremiumConfirmed ? BigInt(b.proposedPremiumMinor) : 0n)).toString() : null,
     sources: w.assets.map(a => { const holding = pro.holdings.find(h => h.assetId === a.id); const reserved = [...reservations,...generic].filter(r=>r.assetId===a.id).reduce((v,r)=>v+r.amountMinor,0n); return { assetId: a.id, amountMinor: (a.currentValueMinor > reserved ? a.currentValueMinor-reserved : 0n).toString(), availableMonth: holding?.availableOn?.slice(0,7) ?? (a.type==='CASH' ? currentCarMonth() : null), feeMinor: holding?.feeMinor ?? (a.type==='CASH' ? '0' : null), detailsConfirmed: Boolean(holding?.confirmed), use: a.currentValueMinor > reserved && a.isAdjustable && a.currency==='CNY' && (!a.goalId || a.goalId===goalId) && a.type!=='INSURANCE_CASH_VALUE'&&assetAccount(a)!=='protection' && (assetAccount(a)==='liquidity' || Boolean(goalId && a.goalId===goalId)) }; }),
@@ -43,8 +46,21 @@ async function initialFacts(tx: Prisma.TransactionClient, workspaceId: string, g
 export async function getGoalFunding(workspaceId: string, sessionId: string) {
   await db.$transaction(tx=>reconcileCarDependencies(tx,workspaceId));
   return db.$transaction(async tx => {
-    const s = await sessionFor(tx, workspaceId, sessionId); const row = await linked(tx, workspaceId, s);
+    let s = await sessionFor(tx, workspaceId, sessionId);
+    if (s.decisionId && !s.goalId) {
+      await materializeConfirmedGoal(tx, workspaceId, s.decisionId);
+      s = await sessionFor(tx, workspaceId, sessionId);
+    }
+    const row = await linked(tx, workspaceId, s);
     const facts = row ? carFactsSchema.parse(JSON.parse(row.factsJson)) : await initialFacts(tx, workspaceId, s.goalId);
+    if (!row && s.decisionId) {
+      const prior = await tx.goalDecision.findFirst({where:{id:s.decisionId,workspaceId,status:{not:'REDACTED'}}});
+      const target = prior ? JSON.parse(prior.factsJson) : null;
+      if (target?.confirmed) {
+        facts.runningMonthlyMinor=target.monthlyCostMinor??null;
+        facts.reserveFloorMinor=target.reserveMinor??null;
+      }
+    }
     const w = await tx.workspace.findUniqueOrThrow({where:{id:workspaceId}});
     const plan = row?.activePlanId ? await tx.carPlanVersion.findFirst({ where: { id: row.activePlanId, decisionId: row.id } }) : null;
     const snapshot = plan ? JSON.parse(plan.snapshotJson) as { scenario?: CarScenario; evaluation?: CarEvaluation; status?: string } : null;
@@ -80,7 +96,9 @@ export async function saveGoalFunding(tx: Prisma.TransactionClient, workspaceId:
     if(!facts.targetMonth||!facts.budgetMinor||BigInt(facts.budgetMinor)<=0n||!facts.purpose.trim()) throw new ApiError('请确认目标名称、金额和月份',422);
     // A live plan remains unchanged while discussing a replacement.
     if(!row?.activePlanId){
-      const data={name:facts.purpose,type:'CAR_PURCHASE',targetAmountMinor:BigInt(facts.budgetMinor),targetDate:new Date(`${facts.targetMonth}-01T00:00:00+08:00`)};
+      const existingGoal=goalId?await tx.goal.findFirst({where:{id:goalId,workspaceId,deletedAt:null}}):null;
+      const targetDate=existingGoal && goalMonth(existingGoal.targetDate)===facts.targetMonth?existingGoal.targetDate:new Date(`${facts.targetMonth}-01T00:00:00+08:00`);
+      const data={name:facts.purpose,type:'CAR_PURCHASE',targetAmountMinor:BigInt(facts.budgetMinor),targetDate};
       const g=goalId?await tx.goal.update({where:{id:goalId},data}):await tx.goal.create({data:{...data,workspaceId,source:'AGENT_CONFIRMED'}});goalId=g.id;
       await tx.workspace.update({where:{id:workspaceId},data:{portfolioRevision:{increment:1}}});
     }
@@ -88,7 +106,8 @@ export async function saveGoalFunding(tx: Prisma.TransactionClient, workspaceId:
   const w=await tx.workspace.findUniqueOrThrow({where:{id:workspaceId}});
   const data={factsJson:encode(facts),goalId,sourceRevision:w.portfolioRevision,dependenciesJson:encode(await decisionDependencies(tx,workspaceId,goalId)),evaluationJson:null};
   const d=row?await tx.carDecision.update({where:{id:row.id},data:{...data,version:{increment:1}}}):await tx.carDecision.create({data:{...data,workspaceId,goalSessionId:s.id}});
-  const bridge=await tx.goalDecision.upsert({where:{legacyDecisionId:d.id},create:{workspaceId,legacyDecisionId:d.id,goalId,title:facts.purpose||'买车草稿',factsJson:encode({name:facts.purpose,targetAmountMinor:facts.budgetMinor,targetDate:facts.targetMonth?`${facts.targetMonth}-01`:null})},update:{goalId,title:facts.purpose||'买车草稿',version:{increment:1}}});
+  const priorBridge=s.decisionId?await tx.goalDecision.findFirst({where:{id:s.decisionId,workspaceId,legacyDecisionId:null,activePlanId:null}}):null;
+  const bridge=priorBridge?await tx.goalDecision.update({where:{id:priorBridge.id},data:{legacyDecisionId:d.id,goalId,title:facts.purpose||'买车草稿',version:{increment:1}}}):await tx.goalDecision.upsert({where:{legacyDecisionId:d.id},create:{workspaceId,legacyDecisionId:d.id,goalId,title:facts.purpose||'买车草稿',factsJson:encode({name:facts.purpose,targetAmountMinor:facts.budgetMinor,targetDate:facts.targetMonth?`${facts.targetMonth}-01`:null})},update:{goalId,title:facts.purpose||'买车草稿',version:{increment:1}}});
   await tx.agentSession.update({where:{id:s.id},data:{goalId,decisionId:bridge.id,updatedAt:new Date()}});
   return {decisionId:d.id,goalId,version:d.version};
 }

@@ -310,7 +310,7 @@ export async function structuredMultimodalResponse<T>(instructions: string, cont
   }
 }
 
-export async function structuredResponse<T>(instructions: string, input: unknown, schemaName: string, schema: object, timeoutMs = modelTimeoutMs()): Promise<T> {
+export async function structuredResponse<T>(instructions: string, input: unknown, schemaName: string, schema: object, timeoutMs = modelTimeoutMs(), signal?: AbortSignal): Promise<T> {
   if (process.env.NODE_ENV === "test" && process.env.ALLOW_AI_IN_TEST !== "true") throw new Error("OPENAI_DISABLED_IN_TEST");
   const apiKey = modelConfig('OPENAI').API_KEY?.trim();
   const configuredModel = modelConfig('OPENAI').MODEL?.trim();
@@ -327,7 +327,7 @@ export async function structuredResponse<T>(instructions: string, input: unknown
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
     body: JSON.stringify(request.body),
-    signal: AbortSignal.timeout(timeoutMs),
+    signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)]) : AbortSignal.timeout(timeoutMs),
   });
   if (!response.ok) throw await providerError(response, apiKey, "OPENAI");
   const payload = await response.json() as Record<string, unknown>;

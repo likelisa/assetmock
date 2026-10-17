@@ -1,3 +1,4 @@
+import { AGENT_RUN_TIMEOUT_MS, agentFailure, agentModelTimeoutMs } from './agent-failures';
 import { modelConfig } from "@/lib/model-config";
 import { z } from "zod";
 import { createHash } from "node:crypto";
@@ -42,18 +43,19 @@ export async function startAgentMessage(workspaceId:string,id:string,raw:unknown
 async function step(runId:string,name:string,input:unknown,output:unknown,status="COMPLETED"){
  await db.$transaction(async tx=>{const run=await tx.agentRun.findUniqueOrThrow({where:{id:runId}});const previous=await tx.agentStep.aggregate({where:{sessionId:run.sessionId},_max:{sequence:true}});await tx.agentStep.create({data:{sessionId:run.sessionId,runId,sequence:(previous._max.sequence??0)+1,toolName:name,inputJson:encode(input),outputJson:encode(output),status,sourceRevision:0,completedAt:new Date()}});});
 }
-function checkBudget(b:Budget){if(b.signal?.aborted)throw new ApiError("本次处理已停止，可稍后继续",499);if(b.calls>=16||b.tools>=24||Date.now()-b.started>=120000)throw new ApiError("本轮已到处理上限，请继续核对剩余事项",429);}
+function checkBudget(b:Budget){if(b.signal?.aborted)throw new ApiError("本次处理已停止，可稍后继续",499);if(b.calls>=16||b.tools>=24||Date.now()-b.started>=AGENT_RUN_TIMEOUT_MS)throw new ApiError("本轮已到处理上限，请继续核对剩余事项",429);}
 export async function executeAgentRun(workspaceId:string,id:string,emit:(event:AgentEvent)=>void=()=>{},options:{model?:Model;signal?:AbortSignal}={}){
  const budget:Budget={calls:0,tools:0,started:Date.now(),signal:options.signal};
- const model=options.model??((prompt,input)=>structuredResponse(prompt,input,"financial_agent_decision",decisionJsonSchema,45000));
+ const model=options.model??((prompt,input)=>structuredResponse(prompt,input,"financial_agent_decision",decisionJsonSchema,agentModelTimeoutMs(AGENT_RUN_TIMEOUT_MS-(Date.now()-budget.started)),options.signal));
  const run=await db.agentRun.findFirst({where:{workspaceId,id,parentRunId:null}});if(!run)throw new ApiError("运行不存在",404);
  if(!active.includes(run.status))return JSON.parse(run.resultJson);
  const claim=await db.agentRun.updateMany({where:{id,workspaceId,status:"QUEUED"},data:{status:"RUNNING"}});if(!claim.count)return {status:"RUNNING",runId:id};
  try{return await perform(id,budget,model,emit);}
  catch(error){
   const interrupted=options.signal?.aborted;const status=interrupted?"INTERRUPTED":error instanceof ApiError&&error.status===429?"PARTIAL":"FAILED";
-  const result={status,mode:"ERROR",message:interrupted?"处理已中断，可继续本次对话。":"本次处理未完成，已保留消息与工具记录。请重试或使用页面中的资料和计算功能。",error:error instanceof ApiError?error.message:"模型或工具暂时不可用",runId:id};
-  await db.agentRun.updateMany({where:{workspaceId,id,status:{in:active}},data:{status,resultJson:encode(result),errorCode:error instanceof ApiError?String(error.status):"MODEL_OR_TOOL_FAILED",completedAt:new Date()}});
+  const failure=agentFailure(error,Boolean(interrupted));
+  const result={status,mode:"ERROR",message:interrupted?"处理已中断，可继续本次对话。":"本次处理未完成，已保留消息与工具记录。请重试或使用页面中的资料和计算功能。",error:failure.message,runId:id};
+  await db.agentRun.updateMany({where:{workspaceId,id,status:{in:active}},data:{status,resultJson:encode(result),errorCode:failure.code,completedAt:new Date()}});
   await db.agentSession.updateMany({where:{id:run.sessionId,workspaceId,status:"PROCESSING"},data:{status:"ACTIVE"}});emit({type:"error",runId:id,result});return result;
  }
 }
