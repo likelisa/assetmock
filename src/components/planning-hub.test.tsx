@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import * as serverRenderer from "react-dom/server";
 import { PlanningHub, type HubTab } from "./planning-hub";
 import type { FuturePlanningResult, PlanningResult } from "./agent-views";
-import type { SimulationSnapshot } from "@/domain/life-financial-simulation";
 
 const render = serverRenderer.renderToStaticMarkup ?? serverRenderer.renderToString;
 
@@ -27,11 +26,6 @@ const planning: PlanningResult = {
   }],
 };
 
-const simulationSnapshot: SimulationSnapshot = {
-  sourceRevision: 3, currentDate: "2026-09-21", targetDate: "2029-09-01", initialCashMinor: "60000000", initialLiabilityMinor: "0",
-  monthlyIncomeMinor: "1000000", monthlyExpenseMinor: "400000", monthlyDebtPaymentMinor: "0", missingFields: [],
-  goal: { id: "goal-1", name: "三年后购房", targetAmountMinor: "50000000", preparedAmountMinor: "10000000", monthlyContributionMinor: "800000" },
-};
 
 const futurePlanning: FuturePlanningResult = {
   id: "report-1", goalId: "goal-1", planSetId: "plan-1", planKey: "A", sourceRevision: 3, isStale: false,
@@ -61,9 +55,7 @@ function hub(tab: HubTab, options: { workspaceId?: string; activeGoal?: boolean;
     onGenerateFuturePlanning={() => {}}
     onAdoptFuturePlanning={() => {}}
     onViewExecution={() => {}}
-    simulationSnapshot={simulationSnapshot}
     workspaceId={options.workspaceId}
-    simulationStorageKey="test-simulation"
     activeGoal={activeGoal ? { id: "goal-1", name: "三年后购房" } : null}
     assessmentCurrent={assessmentCurrent}
     onGoToAssessment={() => {}}
@@ -74,14 +66,14 @@ function hub(tab: HubTab, options: { workspaceId?: string; activeGoal?: boolean;
 describe("planning hub", () => {
   it("keeps the future-planning sections reachable from one page", () => {
     const html = render(hub("plans"));
-    for (const label of ["方案比较", "未来可能性推演"]) expect(html).toContain(label);
+    for (const label of ["方案比较", "世界线对比"]) expect(html).toContain(label);
     expect(html).not.toContain("持续财富任务");
     expect(html.match(/role="tab"/g)).toHaveLength(2);
     expect(html).not.toContain("行动计划");
     expect(html.match(/<h1/g) ?? []).toHaveLength(1);
   });
 
-  it("renders the plan comparison and simulation entry", () => {
+  it("renders the plan comparison and worldline entry", () => {
     const planHtml = render(hub("plans"));
     expect(planHtml).toContain("比较三条路径");
     expect(planHtml).toContain("当前目标");
@@ -90,9 +82,9 @@ describe("planning hub", () => {
     expect(planHtml).toContain("查看其他方案（2）");
     expect(planHtml).not.toContain("平衡方案");
     const scenarioHtml = render(hub("scenarios", {workspaceId:"test-workspace"}));
-    expect(scenarioHtml).not.toContain("手动单事件压力测试");
-    expect(scenarioHtml).toContain("买车推演 5 年，买房推演 30 年");
-    expect(scenarioHtml).toContain("使用虚构角色体验");
+    expect(scenarioHtml).toContain("世界线对比");
+    expect(scenarioHtml).toContain("正在读取当前底账");
+    expect(scenarioHtml).not.toContain("未来可能性推演");
   });
 
   it("blocks planning until a goal is selected and a current assessment exists", () => {

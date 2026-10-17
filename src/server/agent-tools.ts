@@ -12,6 +12,8 @@ import { constraintSchema } from "@/domain/database-planning";
 import { assessLegacyGoal } from "./legacy-goal-adapter";
 import { accountInsights, historyPage, historySchema, orderDetails } from "./paper-trading/insights";
 import { overview as paperOverview } from "./paper-trading/service";
+import * as worldlineAgent from "./worldlines/agent";
+import { detailArgs as worldlineDetailArgs, goalArg as worldlineGoalArg, planArgs as worldlinePlanArgs, runArgs as worldlineRunArgs } from "./worldlines/agent";
 
 const all: AgentKey[]=["WEALTH","GOAL","CASHFLOW","INVESTMENT","INSURANCE"];
 const empty=z.object({}).strict();
@@ -133,6 +135,10 @@ export const agentTools:Record<string,Tool>={
  proposeGoalReview:tool(["GOAL"],"PROPOSE","核对实际账户余额与目标进度，生成复盘确认卡",z.object({decisionId:z.string(),period:z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/),balances:z.array(z.object({assetId:z.string(),amountMinor:minorSchema}).strict()).min(1).max(50),note:z.string().max(1000)}).strict(),async(a,c)=>{
   await decision(c,a.decisionId);if(a.balances.some(x=>!c.facts.assets.some(y=>y.id===x.assetId)))throw new ApiError("资产不属于当前工作区",422);return proposal(c,"GOAL_REVIEW","确认实际余额与目标复盘",a);
  }),
+ getEventCards:tool(["GOAL","WEALTH","CASHFLOW"],"QUERY","读取世界线事件卡目录（按目标过滤）：每张卡的强度档、可复述前提、依据等级与默认权重。选卡前先调这个，不要凭印象编卡",worldlineGoalArg,async(a,c)=>serialize(await worldlineAgent.cardsForAgent(c.workspaceId,a.goalId??c.goalId))),
+ proposeEventCardPlan:tool(["GOAL","WEALTH","CASHFLOW"],"COMPUTE","校验你为这个用户选定的世界线卡组：可排除无关卡、可钉住某一档，但只能选档不能改数值；静默砍掉最重档或整组梯度会被拒",worldlinePlanArgs,async(a,c)=>serialize(await worldlineAgent.reviewPlanForAgent(c.workspaceId,a.goalId??c.goalId,a.plan))),
+ simulateWorldlines:tool(["GOAL","WEALTH","CASHFLOW"],"COMPUTE","按当前底账与卡组批量推演 N 条世界线，返回分级候选与统计（≤8 条候选、≤6KB）。不预测未来，不代表概率",worldlineRunArgs,async(a,c)=>worldlineAgent.runWorldlinesForAgent(c.workspaceId,{...a,goalId:a.goalId??c.goalId})),
+ getWorldlineDetail:tool(["GOAL","WEALTH","CASHFLOW"],"QUERY","重算某条候选世界线的逐月可用资金（抽样≤12 月），用于说明第几个月开始不够",worldlineDetailArgs,async(a,c)=>worldlineAgent.worldlineDetailForAgent(c.workspaceId,{...a,goalId:a.goalId??c.goalId})),
 };
 export function toolCatalog(key:AgentKey){return Object.entries(agentTools).filter(([,t])=>t.roles.includes(key)).map(([name,t])=>({name,kind:t.kind,description:t.description,inputSchema:z.toJSONSchema(t.schema,{io:"input"})}));}
 export async function executeAgentTool(name:string,args:unknown,ctx:ToolContext){const t=agentTools[name];if(!t||!t.roles.includes(ctx.agentKey))throw new ApiError("当前管家没有这个工具权限",403);return t.execute(t.schema.parse(args) as never,ctx);}

@@ -31,7 +31,6 @@ import { DiagnosisView, type AgentResults } from "./agent-views";
 import { ActionsView, type ExecutionResults } from "./execution-views";
 import { PlanningHub } from "./planning-hub";
 import { FinancialHome } from "./financial-home";
-import { simulationMissingFields, type SimulationSnapshot } from "@/domain/life-financial-simulation";
 import { ManagerSummary, SpecialistManagerPage } from "./specialist-managers";
 import { BookkeepingView } from "./bookkeeping-view";
 import { PromptSidebar } from "./prompt-sidebar";
@@ -482,27 +481,6 @@ export function FinancialWorkspace() {
   const tabLabels: Partial<Record<View, string>> = { agent: "财富总览", diagnosis: "财富诊断", bookkeeping: "记账", "cashflow-manager": "复盘" };
 
   const selectedPlan = agentResults.planning?.plans.find((item) => item.key === agentResults.planning?.selectedPlanKey) ?? null;
-  const selectedGoal = selectedPlan ? portfolio.goals.find((goal) => goal.id === agentResults.planning?.goalId) ?? null : null;
-  const simulationSnapshot: SimulationSnapshot | null = selectedPlan && selectedGoal ? (() => {
-    const base = {
-      sourceRevision: portfolio.portfolioRevision,
-      currentDate: new Date().toISOString(),
-      targetDate: selectedPlan.targetDate,
-      goal: {
-        id: selectedGoal.id,
-        name: selectedGoal.name,
-        targetAmountMinor: selectedPlan.targetAmountMinor,
-        preparedAmountMinor: selectedGoal.preparedAmountMinor,
-        monthlyContributionMinor: selectedPlan.monthlyContributionMinor,
-      },
-      initialCashMinor: portfolio.assets.filter((asset) => ["T0", "D7", "D30"].includes(asset.liquidityLevel)).reduce((total, asset) => total + BigInt(asset.currentValueMinor), 0n).toString(),
-      initialLiabilityMinor: portfolio.liabilities.reduce((total, item) => total + BigInt(item.outstandingBalanceMinor), 0n).toString(),
-      monthlyIncomeMinor: (BigInt(portfolio.profile?.stableMonthlyIncomeMinor ?? "0") + BigInt(portfolio.profile?.otherMonthlyIncomeMinor ?? "0")).toString(),
-      monthlyExpenseMinor: (BigInt(portfolio.profile?.rentExpenseMinor ?? "0") + BigInt(portfolio.profile?.transportExpenseMinor ?? "0") + BigInt(portfolio.profile?.essentialExpenseMinor ?? "0")).toString(),
-      monthlyDebtPaymentMinor: portfolio.liabilities.reduce((total, item) => total + BigInt(item.monthlyPaymentMinor), 0n).toString(),
-    };
-    return { ...base, missingFields: simulationMissingFields(base) };
-  })() : null;
 
   return (
     <div className={`workspace-shell min-h-screen ${view === "agent" ? "workspace-shell-home" : ""}`}>
@@ -565,9 +543,9 @@ export function FinancialWorkspace() {
               <ActionsView result={executionResults.actions} loading={saving} onStatus={updateActionStatus} />
               <GoalDecisionSummary workspaceId={workspaceId} revision={portfolio.portfolioRevision} onOpenPlanning={() => setView("planning")} />
             </div></div>}
-            <section className="goal-simulation-entry" aria-label="未来可能性推演">
-              <div><h2>也可以探索未来可能性</h2><p>买车看 5 年，买房看 30 年。比较两种付款方式，体验人生事件，看看剩余资金如何变化。</p><small>{planningGoal ? `当前规划目标：${planningGoal.name}` : "使用当前底账确认开局，也可以选择虚构角色体验。"}</small></div>
-              <button type="button" className="button-secondary" onClick={openSimulation}><Activity size={18} aria-hidden="true" />未来可能性推演</button>
+            <section className="goal-simulation-entry" aria-label="世界线对比">
+              <div><h2>也可以看看这件事有多少种走法</h2><p>同一个决定跑很多遍，按你的底账与真实统计假设，比较两种付款方式在几百条世界线里的位置。</p><small>{planningGoal ? `当前规划目标：${planningGoal.name}` : "使用当前底账，先确认简化输入再开始。"}</small></div>
+              <button type="button" className="button-secondary" onClick={openSimulation}><Activity size={18} aria-hidden="true" />世界线对比</button>
             </section>
           </>}
           {view === "data-management" && <DataManagementView workspaceId={workspaceId} onChange={() => loadPortfolio(workspaceId)} />}
@@ -594,9 +572,6 @@ export function FinancialWorkspace() {
             onAdoptFuturePlanning={adoptFuturePlanning}
             onViewExecution={() => setView("execution")}
             onGoToAgent={() => setView("agent")}
-            simulationSnapshot={simulationSnapshot}
-            lifeOpeningData={{ portfolio, planning: agentResults.planning }}
-            simulationStorageKey={`financial_associate_simulation_${workspaceId}`}
             activeGoal={planningGoal}
             assessmentCurrent={assessmentCurrent}
             onGoToAssessment={goToAssessment}

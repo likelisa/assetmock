@@ -102,9 +102,10 @@ async function complete(run:{id:string;workspaceId:string;sessionId:string;paren
  if(current.status==="CANCELLED")throw new ApiError("任务已取消",499);
  const paperResults=outputs.map(o=>(o as {result?:{paperContext?:{accountId:string;accountVersion:number};paperContexts?:{accountId:string;accountVersion:number}[];evidenceIds?:unknown[]}}).result).filter(r=>r?.paperContext||r?.paperContexts);
  const paperEvidence=paperResults.flatMap(r=>r?.evidenceIds?.filter((e):e is string=>typeof e==="string"&&e.startsWith("PAPER_"))??[]);
+ const worldlineEvidence=outputs.flatMap(o=>{const r=(o as {result?:{evidenceIds?:unknown[]}}).result;return (r?.evidenceIds??[]).filter((e):e is string=>typeof e==="string"&&e.startsWith("WORLDLINE"))});
  const paperContexts=paperResults.flatMap(r=>r?.paperContext?[r.paperContext]:r?.paperContexts??[]);
  const paperStale=(await Promise.all(paperContexts.map(async context=>{const row=await db.paperAccount.findFirst({where:{workspaceId:run.workspaceId,id:context.accountId}});return !row||row.version!==context.accountVersion;}))).some(Boolean);
- const validEvidence=new Set([`FACTS:${fresh.signature}`,`GOALS:${fresh.signature}`,`PROGRESS:${fresh.signature}`,...fresh.assets.map(a=>a.id),...fresh.goals.map(g=>g.id),...fresh.policies.map(p=>p.id),...fresh.constraints.map(c=>c.id),...fresh.actions.map(a=>a.id),...fresh.decisions.map(d=>d.id),...fresh.products.map(p=>p.id),...outputs.map(o=>(o as {evidenceId:string}).evidenceId),...paperEvidence]);
+ const validEvidence=new Set([`FACTS:${fresh.signature}`,`GOALS:${fresh.signature}`,`PROGRESS:${fresh.signature}`,...fresh.assets.map(a=>a.id),...fresh.goals.map(g=>g.id),...fresh.policies.map(p=>p.id),...fresh.constraints.map(c=>c.id),...fresh.actions.map(a=>a.id),...fresh.decisions.map(d=>d.id),...fresh.products.map(p=>p.id),...outputs.map(o=>(o as {evidenceId:string}).evidenceId),...paperEvidence,...worldlineEvidence]);
  if(answer.evidenceIds.some(id=>!validEvidence.has(id)))throw new ApiError("回复引用的依据无法核对，请重新生成",422);
  const stale=fresh.signature!==signature||paperStale;
  const status=forced??(stale?"PARTIAL":pending.length?"WAITING_CONFIRMATION":answer.kind==="ASK"?"WAITING_USER":"COMPLETED");
