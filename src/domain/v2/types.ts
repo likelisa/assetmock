@@ -7,10 +7,10 @@ export type Choice = 'lower' | 'wait' | 'temporary' | 'accept' | 'decline';
 export type EventKind = 'medical' | 'jobLoss' | 'bonusDelay' | 'marketDrop' | 'career';
 export type Draws = Record<EventKind, number>;
 export type Character = Profile & { target: Target; rent: number; age: number };
-export interface Input { target: Target; profileId: string; price: number; paths: [PlanInput, PlanInput] }
+export interface Input { custom?: import('./custom').CustomGoal; target: Target; profileId: string; price: number; paths: [PlanInput, PlanInput] }
 export interface PlanInput { method: Method; downPercent: number; term: number; offerId: string }
 export interface Plan extends PlanInput { id: PathId; label: string; down: number; principal: number; payment: number; offer: LoanOffer }
-export interface Rules { version: '0.2.0' | '0.3.0'; months: number; startMonth: string; probabilities: Draws; medicalCost: number; medicalDuration: number; medicalCooldown: number; jobCooldown: number; careerCooldown: number; marketDropRate: string }
+export interface Rules { version: '0.2.0' | '0.3.0' | '0.4.0'; months: number; startMonth: string; probabilities: Draws; medicalCost: number; medicalDuration: number; medicalCooldown: number; jobCooldown: number; careerCooldown: number; marketDropRate: string }
 export interface SimulationSource { kind: 'ledger' | 'demo'; workspaceId: string; goalId: string | null; signature?: string; confirmedAt?: string; notes: string[]; sourceAssets?: unknown; confirmed?: unknown }
 export interface Setup { source?: SimulationSource; input: Input; profile: Character; plans: Record<PathId, Plan>; rules: Rules; runningCost: number; depreciation: number }
 export interface Employment { salary: number; livingExtra: number; jobEligible: number; careerEligible: number; job?: { month: number; salary: number; choice: Choice }; promotion?: { month: number; salary: number } }

@@ -1,3 +1,5 @@
+import { readEnding, generateEnding } from '@/server/simulations/ending-analysis';
+import { prepareCustom } from '@/server/v2/custom-ai';
 import { z } from 'zod';
 import Decimal from 'decimal.js';
 import { randomUUID } from 'node:crypto';
@@ -26,6 +28,7 @@ function calculation(raw: unknown, sid: string, frozen?: Pick<Run['setup'], 'pro
 }
 export const GET = endpoint(async (req, sid, context) => {
   const parts = req.nextUrl.pathname.slice('/api/simulations/'.length).split('/');
+  if (parts[0] === 'runs' && parts.length === 3 && parts[2] === 'worldline-analysis') return readEnding(v2Store().get(parts[1], sid), context);
   if (parts[0] === 'opening') return openingDraft(context.workspaceId, req.nextUrl.searchParams.get('goalId'));
   if (parts[0] === 'reports') return listReports(context);
   if (parts[0] === 'catalog') return { profiles: characters, offers: { car: offers('car', sid), home: offers('home', sid) }, searchEnabled: searchConfigured() };
@@ -33,6 +36,7 @@ export const GET = endpoint(async (req, sid, context) => {
   throw new ServiceError(404, '接口不存在');
 });
 async function planAction(action: string, raw: unknown, sid: string, frozen?: Pick<Run['setup'], 'profile' | 'rules' | 'source'>) {
+  if(action === 'custom') { const a=z.object({goal:z.string().trim().min(1).max(1000),profileId:z.string()}).strict().parse(raw); const profile=frozen?.profile ?? characters.find(p=>p.id===a.profileId); if(!profile || profile.id!==a.profileId) throw new ServiceError(422,'角色无效'); return prepareCustom(a.goal,profile); }
   if (action === 'calculate') { const result = calculation(raw, sid, frozen); return { input: result.setup.input, plans: result.setup.plans, errors: result.errors, months: result.setup.rules.months }; }
   if (action === 'prepare') {
     const a = z.object({ target: z.enum(['car', 'home']), profileId: z.string(), goal: z.string().min(1).max(1000) }).strict().parse(raw);
@@ -69,12 +73,13 @@ export const POST = endpoint(async (req, sid, context) => {
   const token = openingId ?? (typeof candidate === 'string' && candidate.startsWith('ledger-') ? candidate.slice(7) : undefined);
   const frozen = token ? await frozenOpening(token, context.workspaceId, context.sessionId) : undefined;
   if (parts[0] === 'plans' && parts.length === 2) return planAction(parts[1], payload, sid, frozen);
-  if (parts[0] === 'runs' && parts.length === 1) { const a = confirmed.parse(payload); const result = calculation(a.input, sid, frozen); if (result.errors.length) throw new ServiceError(422, result.errors.join(' ')); result.setup.source ??= {kind:'demo',workspaceId:context.workspaceId,goalId:null,notes:['虚构角色与游戏参数']}; result.setup.rules.version='0.3.0'; const run = v2Store().create(sid, result.setup); await indexRun(run, context); return toPublic(run); }
+  if (parts[0] === 'runs' && parts.length === 1) { const a = confirmed.parse(payload); const result = calculation(a.input, sid, frozen); if (result.errors.length) throw new ServiceError(422, result.errors.join(' ')); result.setup.source ??= {kind:'demo',workspaceId:context.workspaceId,goalId:null,notes:['虚构角色与游戏参数']}; result.setup.rules.version=result.setup.input.custom?'0.4.0':'0.3.0'; const run = v2Store().create(sid, result.setup); await indexRun(run, context); return toPublic(run); }
   if (parts[0] !== 'runs' || parts.length !== 3) throw new ServiceError(404, '接口不存在');
   const id = parts[1], action = parts[2];
   if (action === 'advance') { const a = changeSchema.extend({ single: z.boolean().default(false) }).strict().parse(payload); return v2Store().mutate(id, sid, a.expectedVersion, a.requestKey, { kind: 'advance', single: a.single }); }
   if (action === 'choose') { const a = changeSchema.extend({ selections: z.array(choiceSchema).min(1).max(2) }).strict().parse(payload); return v2Store().mutate(id, sid, a.expectedVersion, a.requestKey, { kind: 'choose', selections: a.selections }); }
   const run = v2Store().get(id, sid);
+  if (action === 'worldline-analysis') { const a=z.object({expectedVersion:z.number().int().nonnegative()}).strict().parse(payload); return generateEnding(run,context,a.expectedVersion); }
   if (action === 'report') return saveReport(run, context);
   if (action === 'replay') { const result = replay(run, payload, sid); await indexRun(v2Store().get(result.id,sid),context); return result; }
   if (action === 'explanation') {

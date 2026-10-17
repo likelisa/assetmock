@@ -13,7 +13,7 @@ export function makeRun(sessionId: string, setup: Setup, options?: { tape?: Draw
   const tape = options?.tape ?? tapeFor(setup.rules.months);
   if (tape.length !== setup.rules.months) throw new Error('随机记录长度无效');
   const initial = initialState(setup);
-  return structuredClone({ schemaVersion: 2, id: randomUUID(), sessionId, createdAt: new Date().toISOString(), setup, tape, initial, state: initial, history: [], version: 0, status: 'running', inherited: options?.inherited ?? [], notices: [], parentId: options?.parentId, stageStart: 0, stopReason: '已完成购置，准备开始人生' });
+  return structuredClone({ schemaVersion: 2, id: randomUUID(), sessionId, createdAt: new Date().toISOString(), setup, tape, initial, state: initial, history: [], version: 0, status: 'running', inherited: options?.inherited ?? [], notices: [], parentId: options?.parentId, stageStart: 0, stopReason: setup.input.custom ? '行动方案已确认，准备开始人生' : '已完成购置，准备开始人生' });
 }
 export class V2Store {
   private db: Database.Database;

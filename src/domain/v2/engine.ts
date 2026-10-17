@@ -1,3 +1,4 @@
+import { customPhase } from './custom';
 import { multiply, repayment } from '../money';
 import { ids, type Balance, type Choice, type Draws, type Employment, type Month, type Pending, type Run, type Selection, type Setup, type State } from './types';
 export const funds = (p: Pick<Balance, 'cash' | 'fund'>) => p.cash + p.fund;
@@ -79,7 +80,8 @@ function settlePath(before: Balance, id: 'a' | 'b', month: number, pending: Pend
     }
     const affected = (kind: string) => pending.events.some(e => e.kind === kind && e.paths.includes(id));
     const loan = repayment(p.loan, plan.offer.annualRate, plan.payment, month === plan.term);
-    const ledger = { salary: salaryAt(p.employment, month), bonus, living: setup.profile.living - setup.profile.rent + p.employment.livingExtra, running: setup.runningCost,
+    const phase = setup.input.custom ? customPhase(setup.input.custom, id === 'a' ? 0 : 1, month) : undefined;
+    const ledger = { salary: phase ? phase.income : salaryAt(p.employment, month), bonus, living: setup.profile.living - (setup.input.custom ? 0 : setup.profile.rent) + p.employment.livingExtra, running: phase ? phase.extraExpense : setup.runningCost,
       medical: affected('medical') ? setup.rules.medicalCost : 0, debtPrincipal: Math.min(p.debt, setup.profile.debtPayment), loanPrincipal: loan.principal, interest: loan.interest,
       fundLoss: affected('marketDrop') ? multiply(p.fund, setup.rules.marketDropRate) : 0, fundSale: 0, depreciation: Math.min(p.asset, setup.depreciation) };
     p.fund -= ledger.fundLoss;
@@ -91,7 +93,7 @@ function settlePath(before: Balance, id: 'a' | 'b', month: number, pending: Pend
     }
     ledger.fundSale = needed; p.fund -= needed; p.cash = cash + needed;
     p.loan -= loan.principal; p.debt -= ledger.debtPrincipal; p.asset -= ledger.depreciation;
-    p.paid += loan.total; p.lastMonth = month; p.netWorth = worth(p);
+    p.paid += loan.total + (phase ? phase.extraExpense : 0); p.lastMonth = month; p.netWorth = worth(p);
     if (before.loan > 0 && p.loan === 0) { p.paidOffMonth = month; milestones.push(`${id.toUpperCase()}路径贷款还清`); }
     if (month === setup.rules.months) p.status = 'completed';
     assertBalance(p);
@@ -105,6 +107,7 @@ export function nextBoundary(run: Pick<Run, 'state' | 'setup'>): number {
   const m = run.state.month;
   const active = ids.filter(id => run.state.paths[id].status === 'running');
   if (m + 1 < run.state.life.medicalUntil || active.some(id => !!run.state.paths[id].employment.job)) return Math.min(m + 1, run.setup.rules.months);
+  if (run.setup.input.custom) return Math.min(m+1,run.setup.rules.months);
   let next: number;
   if (run.setup.input.target === 'car' && m < 3) next = m + 1;
   else if (m < 12) next = (Math.floor(m / 3) + 1) * 3;

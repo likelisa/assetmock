@@ -1647,6 +1647,7 @@ model SimulationOpening {
   @@index([workspaceId, sessionId])
 }
 model SimulationReport {
+  worldlineAnalysisJson String?
   runId String @id
   workspaceId String
   sessionId String

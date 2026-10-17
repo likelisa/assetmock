@@ -63,10 +63,11 @@ export interface Suggestion { id: string; title: string; input: Input; override?
 export function candidates(run: Run): Suggestion[] {
   const inputs: { title: string; input: Input; override?: ChoiceRecord }[] = [];
   const lower = structuredClone(run.setup.input); lower.price = Math.round(lower.price * .9);
-  inputs.push({ title: '购置预算降低10%', input: lower });
+  if(lower.custom){lower.custom.actions.forEach(a=>{a.upfront=Math.round(a.upfront*.9);});}
+  inputs.push({ title: lower.custom ? '两条行动的一次性预算降低10%' : '购置预算降低10%', input: lower });
   const down = structuredClone(run.setup.input);
   down.paths.forEach(p => { if (p.method !== 'full') p.downPercent = p.downPercent <= 70 ? p.downPercent + 10 : p.downPercent - 10; });
-  inputs.push({ title: '贷款路径首付调整10个百分点', input: down });
+  if(!down.custom) inputs.push({ title: '贷款路径首付调整10个百分点', input: down });
   const first = run.history.flatMap(m => m.choices).find(c => c.kind === 'jobLoss' || c.kind === 'career');
   if (first) inputs.push({ title: '改变一次历史职业选择', input: structuredClone(run.setup.input), override: { ...first, choice: first.kind === 'career' ? (first.choice === 'accept' ? 'decline' : 'accept') : (first.choice === 'lower' ? 'wait' : 'lower') } });
   return inputs.flatMap((candidate, index) => {
@@ -101,7 +102,7 @@ export async function recommend(run: Run) {
 }
 export async function explain(run: Run) {
   const view = toPublic(run);
-  const facts = [{ id: 'context:target', text: `本局目标是${run.setup.input.target === 'home' ? '购房' : '购车'}，已结算${run.state.month}个月。${run.pending ? `第${run.pending.month}月事件待处理，尚未结算。` : ''}` }, ...(run.status === 'ended' ? view.summary.facts : view.facts)];
+  const facts = [{ id: 'context:target', text: `本局目标是${run.setup.input.custom ? `自定义行动：${run.setup.input.custom.goal}；收入变化仅为用户确认的假设，并非就业或收益承诺` : run.setup.input.target === 'home' ? '购房' : '购车'}，已结算${run.state.month}个月。${run.pending ? `第${run.pending.month}月事件待处理，尚未结算。` : ''}` }, ...(run.status === 'ended' ? view.summary.facts : view.facts)];
   if (!modelConfig('LLM').API_KEY?.trim()) return ruleExplanation(facts, 'AI 暂不可用，显示规则说明。');
   let invalid = '';
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -115,7 +116,7 @@ export async function explain(run: Run) {
       const paragraphs = validateExplanation(parsed, facts);
       if (paragraphs.some(p => /收入不稳定|不稳定的收入|工资不稳定/.test(p.text))) throw new Error('工资规则解释不匹配');
       if (run.setup.input.target === 'home' && paragraphs.some(p => /购车|车款|车辆购置|车贷|用车支出/.test(p.text))) throw new Error('目标解释不匹配');
-      if (run.setup.input.target === 'car' && paragraphs.some(p => /购房|房贷|房款|房屋购置/.test(p.text))) throw new Error('目标解释不匹配');
+      if (!run.setup.input.custom && run.setup.input.target === 'car' && paragraphs.some(p => /购房|房贷|房款|房屋购置/.test(p.text))) throw new Error('目标解释不匹配');
       return { source: 'model' as const, facts, paragraphs };
     } catch { if (!invalid) break; }
   }
